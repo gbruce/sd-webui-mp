@@ -6,7 +6,7 @@ from modules import extensions
 # Handy constants
 PHOTOPEA_MAIN_URL = "https://www.photopea.com/"
 PHOTOPEA_IFRAME_ID = "webui-photopea-iframe"
-PHOTOPEA_IFRAME_HEIGHT = 768
+PHOTOPEA_IFRAME_HEIGHT = 640
 PHOTOPEA_IFRAME_WIDTH = "100%"
 PHOTOPEA_IFRAME_LOADED_EVENT = "onPhotopeaLoaded"
 
@@ -25,7 +25,7 @@ def on_ui_tabs():
             # Add an iframe with Photopea directly in the tab.
             gr.HTML(
                 f"""<iframe id="{PHOTOPEA_IFRAME_ID}" 
-                src = "{PHOTOPEA_MAIN_URL}{get_photopea_url_params()}" 
+                src = "/file=extensions/sd-webui-mp/bundle/showcase.html?m=bBBS2G27K85&qs=1&play=1&applicationKey=08s53auxt9txz1w6hx2iww1qb" 
                 width = "{PHOTOPEA_IFRAME_WIDTH}" 
                 height = "{PHOTOPEA_IFRAME_HEIGHT}"
                 onload = "{PHOTOPEA_IFRAME_LOADED_EVENT}(this)">"""
@@ -114,7 +114,7 @@ def on_ui_tabs():
         )
         send_selection_inpaint.click(fn=None, _js="sendImageWithMaskSelectionToWebUi")
 
-    return [(photopea_tab, "Photopea", "photopea_embed")]
+    return [(photopea_tab, "Matterport", "photopea_embed")]
 
 
 # Initialize Photopea with an empty, 512x512 white image. It's baked as a base64 string with URI encoding.

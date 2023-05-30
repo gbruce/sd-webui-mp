@@ -1,10 +1,97 @@
 /* Setup and navigation */
 var photopeaWindow = null;
 var photopeaIframe = null;
+var mpSdk = null;
+var THREE = null;
+
+class TestComponent {
+    constructor(sdk){
+        this.sdk = sdk;
+    }
+    async onInit() {
+        const THREE = this.context.three;
+        const renderer = this.context.renderer;
+
+        let sweep;
+        await this.sdk.Sweep.current.waitUntil((current) => {
+            sweep = current;
+            return true;
+        });
+
+        new THREE.TextureLoader().load( '00010.png', async ( texture ) => {
+
+            const renderTarget = new THREE.WebGLCubeRenderTarget(2048, {
+                format: THREE.RGBAFormat,
+                generateMipmaps: false,
+                depthBuffer: false,
+                stencilBuffer: false,
+            });
+            const scene = new THREE.Scene();
+
+            const material = new THREE.MeshBasicMaterial( {
+                map: null,
+                side: THREE.BackSide
+            });
+
+            const mesh = new THREE.Mesh(
+                new THREE.IcosahedronGeometry( 100, 4 ),
+                material,
+            );
+            scene.add( mesh );
+            const camera = new THREE.CubeCamera( 1, 1000, renderTarget );
+            material.map = texture;
+
+            camera.update( renderer, scene );;
+            camera.renderTarget.texture.image.width = 2048;
+            camera.renderTarget.texture.image.height = 2048;
+
+            await this.sdk.Renderer.renderOverlay(sweep.id, camera.renderTarget.texture);
+        });
+    }
+}
+
+const factory = (sdk) => {
+return () => new TestComponent(sdk);
+};
+
+const loadScript = (FILE_URL, async = true, type = "text/javascript") => {
+    return new Promise((resolve, reject) => {   
+        try {
+            const scriptEle = document.createElement("script");
+            scriptEle.type = type;
+            scriptEle.async = async;
+            scriptEle.src =FILE_URL;
+
+            scriptEle.addEventListener("load", (ev) => {
+                resolve({ status: true });
+            });
+
+            scriptEle.addEventListener("error", (ev) => {
+                reject({
+                    status: false,
+                    message: `Failed to load the script ＄{FILE_URL}`
+                });
+            });
+
+            document.body.appendChild(scriptEle);
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
 
 // Called by the iframe set up on photopea-tab.py.
-function onPhotopeaLoaded(iframe) {
-    console.log("Photopea iFrame loaded");
+async function onPhotopeaLoaded(iframe) {
+    mpSdk = await iframe.contentWindow.MP_SDK.connect(iframe);
+    console.log(mpSdk);
+    await mpSdk.Scene.registerComponents([
+        { name: 'test', factory: factory(mpSdk)},
+    ]);
+
+    await mpSdk.Scene.configure((renderer, threeInstance) => {
+        THREE = threeInstance;
+    });
+
     photopeaWindow = iframe.contentWindow;
     photopeaIframe = iframe;
 
@@ -132,6 +219,31 @@ function getAndSendImageToWebUITab(webUiTab, sendToControlnet, imageWidgetIndex)
         });
 }
 
+async function getAndSendImageToWebUITab(webUiTab, sendToControlnet, imageWidgetIndex) {
+    const screenshot = await mpSdk.Renderer.takeEquirectangular();
+    const split = screenshot.split('data:image/jpg;base64,');
+    sendImageToWebUi(webUiTab, sendToControlnet, imageWidgetIndex, b64toBlob(split[1], "image/jpg"));
+    // Photopea only allows exporting the whole image, so in case "Active layer only" is selected in
+    // the UI, instead of just requesting the image to be saved, we also make all non-selected
+    // layers invisible.
+    const saveMessage = activeLayerOnly()
+        ? getPhotopeaScriptString(exportSelectedLayerOnly)
+        : 'app.activeDocument.saveToOE("png");';
+
+    postMessageToPhotopea(saveMessage)
+        .then((resultArray) => {
+            // The first index of the payload is an ArrayBuffer of the image. We convert that to
+            // base64 string, then to blob, so it can be sent to a specific image widget in WebUI.
+            // There's likely a direct ArrayBuffer -> Blob conversion, but we're already using b64
+            // as an intermediate format.
+            const base64Png = base64ArrayBuffer(resultArray[0]);
+            sendImageToWebUi(
+                webUiTab,
+                sendToControlnet,
+                imageWidgetIndex,
+                b64toBlob(base64Png, "image/png"));
+        });
+}
 // Send image to a specific image widget in a Web UI tab. This basically navigates the DOM graph via
 // queries, and magically presses buttons. You web developers sure work some dark magic.
 function sendImageToWebUi(webUiTab, sendToControlNet, controlnetModelIndex, blob) {
