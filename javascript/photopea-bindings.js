@@ -4,14 +4,52 @@ var photopeaIframe = null;
 var mpSdk = null;
 var THREE = null;
 var path = null;
+var onOpacityChangedPath = null;
+const sweepMap = {};
+let globalOpacity = 1;
+
+const renderToTexture = (renderer, THREE, texture, sweepY, poseY) => {
+  const renderTarget = new THREE.WebGLCubeRenderTarget(2048, {
+    format: THREE.RGBAFormat,
+    generateMipmaps: false,
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
+  const scene = new THREE.Scene();
+
+  const material = new THREE.MeshBasicMaterial( {
+    map: null,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: globalOpacity,
+    map: texture,
+  });
+
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry( 100 ),
+    material,
+  );
+  console.log(`pose y`, poseY);
+  console.log(`sweep y`, sweepY);
+  mesh.rotateY(THREE.MathUtils.degToRad(-90+sweepY+poseY));
+  mesh.scale.set(-1,1,1);
+
+  scene.add( mesh );
+  const camera = new THREE.CubeCamera( 1, 1000, renderTarget );
+
+  camera.update( renderer, scene );;
+  camera.renderTarget.texture.image.width = 2048;
+  camera.renderTarget.texture.image.height = 2048;
+
+  return camera.renderTarget;
+};
+
 class TestComponent {
 	constructor(sdk){
 		this.sdk = sdk;
     this.events = {
       onBlob: true,
-    };
-    this.inputs = {
-      blob: null,
+      onOpacityChanged: true,
     };
     this.onInputsChanged = this.onInputsChanged.bind(this);
     this.onInit = this.onInit.bind(this);
@@ -19,97 +57,80 @@ class TestComponent {
 	}
 
   async onEvent(type, data) {
+    const THREE = this.context.three;
+    const renderer = this.context.renderer;
+
     console.log('onEvent', type, data);
-    if (type === 'onBlob') {
-      const THREE = this.context.three;
-      const renderer = this.context.renderer;
-  
+    if (type === 'onBlob') {  
       let sweep;
+      let rotation = new THREE.Quaternion();
       await this.sdk.Sweep.current.waitUntil((current) => {
+        console.log(current);
         sweep = current;
+
+        const euler = new THREE.Euler(current.rotation.x, current.rotation.y, current.rotation.z);
+        rotation.setFromEuler(euler);
+        return true;
+      });
+
+      let poseY, sweepY;
+      await this.sdk.Camera.pose.waitUntil((currentPose) => {
+        console.log(currentPose);
+        poseY = currentPose.rotation.y;
+        sweepY = sweep.rotation.y;
         return true;
       });
       new THREE.TextureLoader().load(data, async ( texture ) => {
-        console.log(texture);
+        const renderTarget = renderToTexture(renderer, THREE, texture, sweepY, poseY);
+        await this.sdk.Renderer.renderOverlay(sweep.id, renderTarget.texture);
 
-        const renderTarget = new THREE.WebGLCubeRenderTarget(2048, {
-          format: THREE.RGBAFormat,
-          generateMipmaps: false,
-          depthBuffer: false,
-          stencilBuffer: false,
-        });
-        const scene = new THREE.Scene();
-  
-        const material = new THREE.MeshBasicMaterial( {
-          map: null,
-          side: THREE.BackSide
-        });
-  
-        const mesh = new THREE.Mesh(
-          new THREE.IcosahedronGeometry( 100, 4 ),
-          material,
-        );
-        scene.add( mesh );
-        const camera = new THREE.CubeCamera( 1, 1000, renderTarget );
-        material.map = texture;
-  
-        camera.update( renderer, scene );;
-        camera.renderTarget.texture.image.width = 2048;
-        camera.renderTarget.texture.image.height = 2048;
-  
-        await this.sdk.Renderer.renderOverlay(sweep.id, camera.renderTarget.texture);
+        if (sweepMap[sweep.id]) {
+          sweepMap[sweep.id].texture.dispose();
+          sweepMap[sweep.id].renderTarget.dispose();
+          sweepMap[sweep.id].texture = null;
+          sweepMap[sweep.id].renderTarget = null;
+        }
+        else {
+          sweepMap[sweep.id] = {
+            texture: null,
+            renderTarget: null,
+          };
+        }
+
+        sweepMap[sweep.id].texture = texture;
+        sweepMap[sweep.id].renderTarget = renderTarget;
+        sweepMap[sweep.id].poseY = poseY;
+        sweepMap[sweep.id].sweepY = sweepY;
+      });
+    }
+    else if(type === 'onOpacityChanged') {
+      globalOpacity = data;
+      const keys = Object.keys(sweepMap);
+      keys.forEach(async (key) => {
+        const overlay = sweepMap[key];
+        overlay.renderTarget.dispose();
+        overlay.renderTarget = renderToTexture(renderer, THREE, overlay.texture, overlay.sweepY, overlay.poseY);
+        await this.sdk.Renderer.renderOverlay(key, overlay.renderTarget.texture);
       });
     }
   }
 
 	onInputsChanged() {
-		console.log('onInputsChanged', this.inputs);
-	  if (this.inputs.blob === null) {
-		return;
-	  }
+		console.log('onInputsChanged');
 	}
 
-	async onInit() {
+	onInit() {
     console.log('onInit');
-		const THREE = this.context.three;
-		const renderer = this.context.renderer;
 
-		return;
-		let sweep;
-		await this.sdk.Sweep.current.waitUntil((current) => {
-			sweep = current;
-			return true;
-		});
+    this.sdk.on(this.sdk.Sweep.Event.ENTER, (fromSweep, toSweep) => {
+    });
 
-		new THREE.TextureLoader().load( '00010.png', async ( texture ) => {
-
-			const renderTarget = new THREE.WebGLCubeRenderTarget(2048, {
-				format: THREE.RGBAFormat,
-				generateMipmaps: false,
-				depthBuffer: false,
-				stencilBuffer: false,
-			});
-			const scene = new THREE.Scene();
-
-			const material = new THREE.MeshBasicMaterial( {
-				map: null,
-				side: THREE.BackSide
-			});
-
-			const mesh = new THREE.Mesh(
-				new THREE.IcosahedronGeometry( 100, 4 ),
-				material,
-			);
-			scene.add( mesh );
-			const camera = new THREE.CubeCamera( 1, 1000, renderTarget );
-			material.map = texture;
-
-			camera.update( renderer, scene );;
-			camera.renderTarget.texture.image.width = 2048;
-			camera.renderTarget.texture.image.height = 2048;
-
-			await this.sdk.Renderer.renderOverlay(sweep.id, camera.renderTarget.texture);
-		});
+    this.sdk.on(this.sdk.Sweep.Event.EXIT, (fromSweep, toSweep) => {
+      console.log('Swep.EXIT', fromSweep, toSweep);
+      if(sweepMap[toSweep] && sweepMap[toSweep].renderTarget) {
+        this.sdk.Renderer.renderOverlay(toSweep, sweepMap[toSweep].renderTarget.texture);
+      }
+    });
 	}
 }
 
@@ -155,11 +176,16 @@ async function onPhotopeaLoaded(iframe) {
 		THREE = threeInstance;
 	});
 
+  await mpSdk.Camera.pose.subscribe((pose) => {
+    console.log('pose',pose.rotation);
+  });
   const obj = (await mpSdk.Scene.createObjects(1))[0];
   const node = obj.addNode();
   const component = node.addComponent('test');
   obj.start();
   path = obj.addEventPath(component, 'onBlob');
+  onOpacityChangedPath = obj.addEventPath(component, 'onOpacityChanged');
+
 	photopeaWindow = iframe.contentWindow;
 	photopeaIframe = iframe;
 
@@ -170,13 +196,9 @@ async function onPhotopeaLoaded(iframe) {
 	createSendToPhotopeaButton("image_buttons_img2img", img2img_gallery);
 	createSendToPhotopeaButton("image_buttons_extras", extras_gallery);
 
-	// Listen to the size slider changes.
-	gradioApp().getElementById("photopeaIframeSlider").addEventListener('input', (event) => {
-		// Get the value of the slider and parse it as an integer
-		const newHeight = parseInt(event.target.value);
-
-		// Update the height of the iframe
-		photopeaIframe.style.height = newHeight + 'px';
+  gradioApp().getElementById("overlayOpacitySlider").addEventListener('mouseup', (event) => {
+		const newOpacity = parseFloat(event.target.value);
+    onOpacityChangedPath.emit(newOpacity);
 	});
 }
 
@@ -301,7 +323,12 @@ async function getAndSendImageToWebUITab(webUiTab, sendToControlnet, imageWidget
 	console.log('getAndSendImageToWebUITab');
 	const screenshot = await mpSdk.Renderer.takeEquirectangular();
 	const split = screenshot.split('data:image/jpg;base64,');
-	sendImageToWebUi(webUiTab, sendToControlnet, imageWidgetIndex, b64toBlob(split[1], "image/jpg"));
+  // const blob = b64toBlob(split[1], "image/jpg");
+  // const url = URL.createObjectURL(blob);
+  // const file = new File([blob], "tmp.png");
+  // path.emit(url);
+
+ 	sendImageToWebUi(webUiTab, sendToControlnet, imageWidgetIndex, b64toBlob(split[1], "image/jpg"));
 	// Photopea only allows exporting the whole image, so in case "Active layer only" is selected in
 	// the UI, instead of just requesting the image to be saved, we also make all non-selected
 	// layers invisible.

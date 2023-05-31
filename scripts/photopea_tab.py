@@ -25,7 +25,7 @@ def on_ui_tabs():
             # Add an iframe with Photopea directly in the tab.
             gr.HTML(
                 f"""<iframe id="{PHOTOPEA_IFRAME_ID}" 
-                src = "/file=extensions/sd-webui-mp/bundle/showcase.html?m=bBBS2G27K85&qs=1&play=1&applicationKey=08s53auxt9txz1w6hx2iww1qb" 
+                src = "/file=extensions/sd-webui-mp/bundle/showcase.html?m=bBBS2G27K85&qs=1&play=1&useLegacyIds=0&applicationKey=08s53auxt9txz1w6hx2iww1qb" 
                 width = "{PHOTOPEA_IFRAME_WIDTH}" 
                 height = "{PHOTOPEA_IFRAME_HEIGHT}"
                 onload = "{PHOTOPEA_IFRAME_LOADED_EVENT}(this)">"""
@@ -50,15 +50,14 @@ def on_ui_tabs():
                 visible=num_controlnet_models > 1,
             )
 
-            # Just create the size slider here. We'll modify the page via the js bindings.
             gr.Slider(
-                minimum=512,
-                maximum=2160,
-                value=768,
-                step=10,
-                label="iFrame height",
+                minimum=0.0,
+                maximum=1.0,
+                step=0.1,
+                label="Overlay Opacity",
+                value=1.0,
                 interactive=True,
-                elem_id="photopeaIframeSlider",
+                elem_id="overlayOpacitySlider",
             )
 
         with gr.Row():
