@@ -8,7 +8,7 @@ PHOTOPEA_MAIN_URL = "https://www.photopea.com/"
 PHOTOPEA_IFRAME_ID = "webui-photopea-iframe"
 PHOTOPEA_IFRAME_HEIGHT = 640
 PHOTOPEA_IFRAME_WIDTH = "100%"
-PHOTOPEA_IFRAME_LOADED_EVENT = "onPhotopeaLoaded"
+PHOTOPEA_IFRAME_LOADED_EVENT = "onMatterportLoaded"
 
 
 # Adds the "Photopea" tab to the WebUI
@@ -25,10 +25,11 @@ def on_ui_tabs():
             # Add an iframe with Photopea directly in the tab.
             gr.HTML(
                 f"""<iframe id="{PHOTOPEA_IFRAME_ID}" 
-                src = "/file=extensions/sd-webui-mp/bundle/showcase.html?m=bBBS2G27K85&qs=1&play=1&useLegacyIds=0&applicationKey=08s53auxt9txz1w6hx2iww1qb" 
+                src = "/file=extensions/sd-webui-mp/bundle/showcase.html?m=EaLRmxgr9Qv&qs=1&play=1&useLegacyIds=0&vr=0&applicationKey=08s53auxt9txz1w6hx2iww1qb" 
                 width = "{PHOTOPEA_IFRAME_WIDTH}" 
                 height = "{PHOTOPEA_IFRAME_HEIGHT}"
-                onload = "{PHOTOPEA_IFRAME_LOADED_EVENT}(this)">"""
+                onload = "{PHOTOPEA_IFRAME_LOADED_EVENT}(this)"
+                referrerpolicy ="unsafe-url">"""
             )
         with gr.Row():
             gr.Checkbox(
@@ -59,6 +60,13 @@ def on_ui_tabs():
                 interactive=True,
                 elem_id="overlayOpacitySlider",
             )
+
+            with gr.Row():
+                gr.Textbox(
+                    label='Model Sid', lines=1,
+                    elem_id="modelSidInput",
+                )
+                gr.Button('Load Space', elem_id='loadSpaceButton')
 
         with gr.Row():
             with gr.Column():

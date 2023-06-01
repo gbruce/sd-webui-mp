@@ -5,8 +5,10 @@ var mpSdk = null;
 var THREE = null;
 var path = null;
 var onOpacityChangedPath = null;
+var onPurgedPath = null;
 const sweepMap = {};
 let globalOpacity = 1;
+let globalSceneObject = null;
 
 const renderToTexture = (renderer, THREE, texture, sweepY, poseY) => {
   const renderTarget = new THREE.WebGLCubeRenderTarget(2048, {
@@ -35,7 +37,7 @@ const renderToTexture = (renderer, THREE, texture, sweepY, poseY) => {
   mesh.scale.set(-1,1,1);
 
   scene.add( mesh );
-  const camera = new THREE.CubeCamera( 1, 1000, renderTarget );
+  const camera = new THREE.CubeCamera( 1, 100, renderTarget );
 
   camera.update( renderer, scene );;
   camera.renderTarget.texture.image.width = 2048;
@@ -50,6 +52,7 @@ class TestComponent {
     this.events = {
       onBlob: true,
       onOpacityChanged: true,
+      onPurged: true,
     };
     this.onInputsChanged = this.onInputsChanged.bind(this);
     this.onInit = this.onInit.bind(this);
@@ -59,6 +62,7 @@ class TestComponent {
   async onEvent(type, data) {
     const THREE = this.context.three;
     const renderer = this.context.renderer;
+	const scene = this.context.scene;
 
     console.log('onEvent', type, data);
     if (type === 'onBlob') {  
@@ -74,10 +78,11 @@ class TestComponent {
       });
 
       let poseY, sweepY;
+	  let position;
       await this.sdk.Camera.pose.waitUntil((currentPose) => {
-        console.log(currentPose);
         poseY = currentPose.rotation.y;
         sweepY = sweep.rotation.y;
+		position = sweep.position;
         return true;
       });
       new THREE.TextureLoader().load(data, async ( texture ) => {
@@ -113,6 +118,16 @@ class TestComponent {
         await this.sdk.Renderer.renderOverlay(key, overlay.renderTarget.texture);
       });
     }
+    else if(type === 'onPurged') {
+      for(const sid in sweepMap) {
+        const overlay = sweepMap[sid];
+        overlay.texture.dispose();
+        overlay.texture = null;
+        overlay.renderTarget.dispose();
+        overlay.renderTarget = null;
+        delete sweepMap[sid];
+      }
+    }
   }
 
 	onInputsChanged() {
@@ -120,17 +135,14 @@ class TestComponent {
 	}
 
 	onInit() {
-    console.log('onInit');
+    	console.log('onInit');
 
-    this.sdk.on(this.sdk.Sweep.Event.ENTER, (fromSweep, toSweep) => {
-    });
-
-    this.sdk.on(this.sdk.Sweep.Event.EXIT, (fromSweep, toSweep) => {
-      console.log('Swep.EXIT', fromSweep, toSweep);
-      if(sweepMap[toSweep] && sweepMap[toSweep].renderTarget) {
-        this.sdk.Renderer.renderOverlay(toSweep, sweepMap[toSweep].renderTarget.texture);
-      }
-    });
+    	this.sdk.on(this.sdk.Sweep.Event.EXIT, (fromSweep, toSweep) => {
+      		console.log('Swep.EXIT', fromSweep, toSweep);
+      		if(sweepMap[toSweep] && sweepMap[toSweep].renderTarget) {
+        		this.sdk.Renderer.renderOverlay(toSweep, sweepMap[toSweep].renderTarget.texture);
+      		}
+    	});
 	}
 }
 
@@ -164,28 +176,25 @@ const loadScript = (FILE_URL, async = true, type = "text/javascript") => {
 	});
 };
 
-// Called by the iframe set up on photopea-tab.py.
-async function onPhotopeaLoaded(iframe) {
+async function onMatterportLoaded(iframe) {
 	mpSdk = await iframe.contentWindow.MP_SDK.connect(iframe);
 	console.log(mpSdk);
 	await mpSdk.Scene.registerComponents([
 		{ name: 'test', factory: factory(mpSdk)},
 	]);
 
-	await mpSdk.Scene.configure((renderer, threeInstance) => {
+	await mpSdk.Scene.configure((renderer, threeInstance, effectComposer) => {
 		THREE = threeInstance;
 	});
 
-  await mpSdk.Camera.pose.subscribe((pose) => {
-    console.log('pose',pose.rotation);
-  });
-  const obj = (await mpSdk.Scene.createObjects(1))[0];
-  const node = obj.addNode();
-  const component = node.addComponent('test');
-  obj.start();
-  path = obj.addEventPath(component, 'onBlob');
-  onOpacityChangedPath = obj.addEventPath(component, 'onOpacityChanged');
-
+	globalSceneObject = (await mpSdk.Scene.createObjects(1))[0];
+	const node = globalSceneObject.addNode();
+	const component = node.addComponent('test');
+	node.addComponent('mp.lights');
+	globalSceneObject.start();
+	path = globalSceneObject.addEventPath(component, 'onBlob');
+	onOpacityChangedPath = globalSceneObject.addEventPath(component, 'onOpacityChanged');
+	onPurgedPath = globalSceneObject.addEventPath(component, 'onPurged');
 	photopeaWindow = iframe.contentWindow;
 	photopeaIframe = iframe;
 
@@ -200,6 +209,17 @@ async function onPhotopeaLoaded(iframe) {
 		const newOpacity = parseFloat(event.target.value);
     onOpacityChangedPath.emit(newOpacity);
 	});
+
+  gradioApp().getElementById("loadSpaceButton").addEventListener('click', (event) => {
+    const input = gradioApp().querySelector("#modelSidInput textarea");
+    const string = `/file=extensions/sd-webui-mp/bundle/showcase.html?m=${input.value}&qs=1&play=1&useLegacyIds=0&vr=0&applicationKey=08s53auxt9txz1w6hx2iww1qb`;
+
+    onPurgedPath.emit();
+    globalSceneObject.stop();
+
+    const iframe = gradioApp().querySelector('#webui-photopea-iframe');
+    iframe.src = string;
+  });
 }
 
 // Creates a button in one of the WebUI galleries that will get the currently selected image in the 
@@ -208,11 +228,16 @@ async function onPhotopeaLoaded(iframe) {
 // `gallery`: the gallery div itself (cached by WebUI).
 function createSendToPhotopeaButton(queryId, gallery) {
 	console.log('createSendToPhotopeaButton');
+
+  const searchForElement = gradioApp().querySelector(`#${queryId}_open_in_photopea`);
+  if (searchForElement) {
+    return;
+  }
 	const existingButton = gradioApp().querySelector(`#${queryId} button`);
 	const newButton = existingButton.cloneNode(true);
 	gradioApp().querySelector(`#${queryId}`).appendChild(newButton);
 	newButton.id = `${queryId}_open_in_photopea`;
-	newButton.textContent = "Send to Photopea";
+	newButton.textContent = "Send to Mttr";
 	newButton.addEventListener("click", () => openImageInPhotopea(gallery));
 }
 
